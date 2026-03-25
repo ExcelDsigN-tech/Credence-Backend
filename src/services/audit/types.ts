@@ -16,6 +16,9 @@ export enum AuditAction {
   SLASH_VOTE_CAST = 'SLASH_VOTE_CAST',
   EVIDENCE_UPLOADED = 'EVIDENCE_UPLOADED',
   EVIDENCE_ACCESSED = 'EVIDENCE_ACCESSED',
+  EXPORT_AUDIT_LOGS = 'EXPORT_AUDIT_LOGS',
+  ISSUE_IMPERSONATION_TOKEN = 'ISSUE_IMPERSONATION_TOKEN',
+  REVOKE_IMPERSONATION_TOKEN = 'REVOKE_IMPERSONATION_TOKEN',
 }
 
 export type AuditStatus = 'success' | 'failure'
@@ -40,7 +43,6 @@ export interface AuditLogFilters {
   status?: AuditStatus
   from?: string
   to?: string
-  // Backward-compatible aliases used by existing admin route contracts
   adminId?: string
   targetUserId?: string
 }

@@ -31,17 +31,18 @@ import { subscribeBondCreationEvents } from '../listeners/horizonBondEvents.js'
 import { upsertBond, upsertIdentity } from '../services/identityService.js'
 
 describe('Horizon Bond Creation Listener', () => {
-  const events: any[] = []
-
   beforeEach(() => {
     vi.clearAllMocks()
     streamState.onmessage = undefined
-    events.length = 0
   })
 
   it('subscribes without throwing', () => {
-    const onEvent = vi.fn()
-    expect(() => subscribeBondCreationEvents(onEvent)).not.toThrow()
+    expect(() => subscribeBondCreationEvents(vi.fn())).not.toThrow()
+    expect(streamState.onmessage).toBeTypeOf('function')
+  })
+
+  it('accepts an undefined callback', () => {
+    expect(() => subscribeBondCreationEvents(undefined)).not.toThrow()
     expect(streamState.onmessage).toBeTypeOf('function')
   })
 
@@ -49,20 +50,21 @@ describe('Horizon Bond Creation Listener', () => {
     const onEvent = vi.fn()
     subscribeBondCreationEvents(onEvent)
 
-    const op = {
+    await streamState.onmessage?.({
       type: 'create_bond',
-      source_account: 'GABC123',
+      source_account: 'GABC...',
       id: 'bond123',
       amount: '1000',
       duration: '365',
-      paging_token: 'token-1',
-    }
+      paging_token: 'token1',
+    })
 
-    await streamState.onmessage?.(op)
-
-    expect(upsertIdentity).toHaveBeenCalledWith({ id: 'GABC123' })
+    expect(upsertIdentity).toHaveBeenCalledWith({ id: 'GABC...' })
     expect(upsertBond).toHaveBeenCalledWith({ id: 'bond123', amount: '1000', duration: '365' })
-    expect(onEvent).toHaveBeenCalledTimes(1)
+    expect(onEvent).toHaveBeenCalledWith({
+      identity: { id: 'GABC...' },
+      bond: { id: 'bond123', amount: '1000', duration: '365' },
+    })
   })
 
   it('ignores non-bond events', async () => {
@@ -71,8 +73,8 @@ describe('Horizon Bond Creation Listener', () => {
 
     await streamState.onmessage?.({
       type: 'payment',
-      id: 'not-bond',
-      paging_token: 'token-2',
+      id: 'other',
+      paging_token: 'token2',
     })
 
     expect(upsertIdentity).not.toHaveBeenCalled()
@@ -80,25 +82,22 @@ describe('Horizon Bond Creation Listener', () => {
     expect(onEvent).not.toHaveBeenCalled()
   })
 
-  it('handles duplicate bond events gracefully', async () => {
-    const op = {
+  it('handles duplicate create_bond events consistently', async () => {
+    subscribeBondCreationEvents(vi.fn())
+
+    const event = {
       type: 'create_bond',
-      source_account: 'GABC123',
+      source_account: 'GABC...',
       id: 'bond123',
       amount: '1000',
       duration: '365',
-      paging_token: 'token-3',
+      paging_token: 'token1',
     }
 
-    subscribeBondCreationEvents((event) => events.push(event))
-    await streamState.onmessage?.(op)
-    await streamState.onmessage?.(op)
+    await streamState.onmessage?.(event)
+    await streamState.onmessage?.(event)
 
+    expect(upsertIdentity).toHaveBeenCalledTimes(2)
     expect(upsertBond).toHaveBeenCalledTimes(2)
-    expect(events.length).toBe(2)
-  })
-
-  it('supports undefined callback', () => {
-    expect(() => subscribeBondCreationEvents(undefined)).not.toThrow()
   })
 })

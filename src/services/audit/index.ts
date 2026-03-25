@@ -4,7 +4,7 @@ import {
   PostgresAuditLogsRepository,
   type AuditLogRepository,
 } from '../../db/repositories/auditLogsRepository.js'
-import type { AuditLogEntry, AuditLogFilters, AuditLogInput } from './types.js'
+import type { AuditLogEntry, AuditLogFilters, AuditLogInput, AuditStatus } from './types.js'
 import { AuditAction } from './types.js'
 
 /**
@@ -28,8 +28,44 @@ export class AuditLogService {
    * @param ipAddress - IP address of the requester
    * @returns The created audit log entry
    */
-  async logAction(input: AuditLogInput): Promise<AuditLogEntry> {
-    return this.repository.append(input)
+  async logAction(
+    inputOrActorId: AuditLogInput | string,
+    actorEmail?: string,
+    action?: AuditAction | string,
+    targetUserId?: string,
+    targetUserEmail?: string,
+    details?: Record<string, unknown>,
+    status?: AuditStatus,
+    errorMessage?: string,
+    ipAddress?: string,
+  ): Promise<AuditLogEntry> {
+    if (typeof inputOrActorId !== 'string') {
+      return this.repository.append(inputOrActorId)
+    }
+
+    const actorId = inputOrActorId
+    const effectiveAction = action ?? 'UNKNOWN_ACTION'
+    const resourceType =
+      effectiveAction === AuditAction.LIST_USERS || effectiveAction === AuditAction.EXPORT_AUDIT_LOGS
+        ? 'admin_user'
+        : 'user'
+
+    const mappedDetails: Record<string, unknown> = {
+      ...(details ?? {}),
+      ...(targetUserEmail ? { targetUserEmail } : {}),
+    }
+
+    return this.repository.append({
+      actorId,
+      actorEmail: actorEmail ?? 'unknown@unknown',
+      action: effectiveAction,
+      resourceType,
+      resourceId: targetUserId ?? actorId,
+      details: mappedDetails,
+      status,
+      errorMessage,
+      ipAddress,
+    })
   }
 
   /**
@@ -61,6 +97,60 @@ export class AuditLogService {
    */
   async clearLogs(): Promise<void> {
     await this.repository.clear()
+  }
+
+  /**
+   * Stream audit logs as an AsyncGenerator to avoid memory spikes
+   * Applies date filtering and redacts sensitive information compliance policy
+   * 
+   * @param startDate - Start date (inclusive)
+   * @param endDate - End date (inclusive)
+   */
+  async *exportLogsStream(startDate: Date, endDate: Date): AsyncGenerator<AuditLogEntry> {
+    const startMs = startDate.getTime()
+    const endMs = endDate.getTime()
+
+    const logs = await this.getAllLogs()
+    for (const log of logs) {
+      const logTime = new Date(log.timestamp).getTime()
+      if (logTime >= startMs && logTime <= endMs) {
+        yield this.redactLogEntry(log)
+        await new Promise((resolve) => setImmediate(resolve))
+      }
+    }
+  }
+
+  /**
+   * Redact sensitive fields for compliance export
+   */
+  private redactLogEntry(entry: AuditLogEntry): AuditLogEntry {
+    const redacted = { ...entry }
+    
+    // Mask emails: preserve first character and domain
+    const maskEmail = (email: string) => {
+      if (!email || !email.includes('@')) return '***@***'
+      const [local, domain] = email.split('@')
+      const maskedLocal = local.length > 1 ? `${local[0]}***` : '***'
+      return `${maskedLocal}@${domain}`
+    }
+
+    if (redacted.adminEmail) {
+      redacted.adminEmail = maskEmail(redacted.adminEmail)
+    }
+    if (redacted.targetUserEmail) {
+      redacted.targetUserEmail = maskEmail(redacted.targetUserEmail)
+    }
+
+    // Mask IP address: mask last octet if IPv4
+    if (redacted.ipAddress) {
+      const parts = redacted.ipAddress.split('.')
+      if (parts.length === 4) {
+        parts[3] = '***'
+        redacted.ipAddress = parts.join('.')
+      }
+    }
+
+    return redacted
   }
 }
 

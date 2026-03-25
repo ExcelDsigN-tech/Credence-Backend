@@ -36,6 +36,7 @@ export class AdminService {
     pagination: PaginationOptions = {},
     filters?: { role?: UserRole; active?: boolean }
   ): Promise<ListUsersResponse> {
+    const page = pagination.page ?? 1
     const limit = pagination.limit ?? 50
     const offset = pagination.offset ?? 0
 
@@ -67,8 +68,10 @@ export class AdminService {
 
     return {
       users: paginated,
+      page,
       total,
       limit,
+      hasNext: offset + paginated.length < total,
       offset,
     }
   }
@@ -238,6 +241,59 @@ export class AdminService {
       limit,
       offset
     )
+  }
+
+  /**
+   * Export audit logs as an NDJSON stream
+   *
+   * @param adminId - ID of the admin requesting the export
+   * @param adminEmail - Email of the admin
+   * @param startDate - Start date of the export range
+   * @param endDate - End date of the export range
+   * @returns AsyncGenerator yielding redacted AuditLogEntry objects
+   */
+  exportAuditLogs(
+    adminId: string,
+    adminEmail: string,
+    startDate: Date,
+    endDate: Date
+  ) {
+    // Log the initiation of the export
+    void this.auditLog.logAction({
+      actorId: adminId,
+      actorEmail: adminEmail,
+      action: AuditAction.EXPORT_AUDIT_LOGS,
+      resourceType: 'admin_user',
+      resourceId: adminId,
+      details: { startDate: startDate.toISOString(), endDate: endDate.toISOString(), phase: 'initiation' },
+    })
+
+    return this.auditLog.exportLogsStream(startDate, endDate)
+  }
+
+  /**
+   * Log the completion of an audit log export
+   */
+  logExportCompletion(
+    adminId: string,
+    adminEmail: string,
+    startDate: Date,
+    endDate: Date,
+    recordCount: number
+  ) {
+    void this.auditLog.logAction({
+      actorId: adminId,
+      actorEmail: adminEmail,
+      action: AuditAction.EXPORT_AUDIT_LOGS,
+      resourceType: 'admin_user',
+      resourceId: adminId,
+      details: {
+        startDate: startDate.toISOString(),
+        endDate: endDate.toISOString(),
+        phase: 'completion',
+        recordCount,
+      },
+    })
   }
 
   /**
