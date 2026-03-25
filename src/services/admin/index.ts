@@ -236,6 +236,54 @@ export class AdminService {
   }
 
   /**
+   * Export audit logs as an NDJSON stream
+   *
+   * @param adminId - ID of the admin requesting the export
+   * @param adminEmail - Email of the admin
+   * @param startDate - Start date of the export range
+   * @param endDate - End date of the export range
+   * @returns AsyncGenerator yielding redacted AuditLogEntry objects
+   */
+  exportAuditLogs(
+    adminId: string,
+    adminEmail: string,
+    startDate: Date,
+    endDate: Date
+  ) {
+    // Log the initiation of the export
+    this.auditLog.logAction(
+      adminId,
+      adminEmail,
+      AuditAction.EXPORT_AUDIT_LOGS,
+      adminId,
+      adminEmail,
+      { startDate: startDate.toISOString(), endDate: endDate.toISOString(), phase: 'initiation' }
+    )
+
+    return this.auditLog.exportLogsStream(startDate, endDate)
+  }
+
+  /**
+   * Log the completion of an audit log export
+   */
+  logExportCompletion(
+    adminId: string,
+    adminEmail: string,
+    startDate: Date,
+    endDate: Date,
+    recordCount: number
+  ) {
+    this.auditLog.logAction(
+      adminId,
+      adminEmail,
+      AuditAction.EXPORT_AUDIT_LOGS,
+      adminId,
+      adminEmail,
+      { startDate: startDate.toISOString(), endDate: endDate.toISOString(), phase: 'completion', recordCount }
+    )
+  }
+
+  /**
    * Format user for response (excludes internal details)
    */
   private formatUser(user: any): AdminUser {
